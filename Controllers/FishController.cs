@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Data;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using Dapper;
 using dotnet_rpg.Models;
 
 namespace dotnet_rpg.Controllers
@@ -13,22 +13,18 @@ namespace dotnet_rpg.Controllers
     [Route("fish-controller")]
     public class FishController : ControllerBase
     {
-        private readonly ApplicationDbContext _context;
+        private readonly IDbConnection _connection;
 
-        public FishController(ApplicationDbContext context)
+        public FishController(IDbConnection connection)
         {
-            _context = context;
+            _connection = connection;
         }
 
         // GET: api/Fish
         [HttpGet("get-fish")]
         public async Task<ActionResult<IEnumerable<Fish>>> GetFish()
         {
-            if (_context.Fish == null)
-            {
-                return NotFound();
-            }
-            var fishList = await _context.Fish.ToListAsync();
+            var fishList = await _connection.QueryAsync<Fish>("SELECT * FROM Fish");
             return Ok(fishList); // Return OK with the list of fish
         }
 
@@ -36,11 +32,7 @@ namespace dotnet_rpg.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<Fish>> GetFish(int id)
         {
-            if (_context.Fish == null)
-            {
-                return NotFound();
-            }
-            var fish = await _context.Fish.FindAsync(id);
+            var fish = await _connection.QueryFirstOrDefaultAsync<Fish>("SELECT * FROM Fish WHERE Id = @Id", new { Id = id });
 
             if (fish == null)
             {
@@ -51,7 +43,6 @@ namespace dotnet_rpg.Controllers
         }
 
         // PUT: api/Fish/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPut("{id}")]
         public async Task<IActionResult> PutFish(int id, Fish fish)
         {
@@ -60,38 +51,23 @@ namespace dotnet_rpg.Controllers
                 return BadRequest();
             }
 
-            _context.Entry(fish).State = EntityState.Modified;
+            var affectedRows = await _connection.ExecuteAsync("UPDATE Fish SET Name = @Name WHERE Id = @Id", new { Name = fish.Name, Id = fish.Id });
 
-            try
+            if (affectedRows == 0)
             {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!FishExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
+                return NotFound();
             }
 
             return NoContent();
         }
 
         // POST: api/Fish
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
         public async Task<ActionResult<Fish>> PostFish(Fish fish)
         {
-            if (_context.Fish == null)
-            {
-                return Problem("Entity set 'ApplicationDbContext.Fish' is null.");
-            }
-            _context.Fish.Add(fish);
-            await _context.SaveChangesAsync();
+            var result = await _connection.ExecuteScalarAsync<int>("INSERT INTO Fish (Name) VALUES (@Name); SELECT LAST_INSERT_ID()", new { Name = fish.Name });
+
+            fish.Id = result;
 
             return CreatedAtAction(nameof(GetFish), new { id = fish.Id }, fish);
         }
@@ -100,25 +76,14 @@ namespace dotnet_rpg.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteFish(int id)
         {
-            if (_context.Fish == null)
-            {
-                return NotFound();
-            }
-            var fish = await _context.Fish.FindAsync(id);
-            if (fish == null)
-            {
-                return NotFound();
-            }
+            var affectedRows = await _connection.ExecuteAsync("DELETE FROM Fish WHERE Id = @Id", new { Id = id });
 
-            _context.Fish.Remove(fish);
-            await _context.SaveChangesAsync();
+            if (affectedRows == 0)
+            {
+                return NotFound();
+            }
 
             return NoContent();
-        }
-
-        private bool FishExists(int id)
-        {
-            return _context.Fish.Any(e => e.Id == id);
         }
     }
 }
